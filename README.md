@@ -24,19 +24,20 @@ Use @chubbyts/chubbyts-undici-server on node.js.
 ## Requirements
 
  * node: 20
- * [@chubbyts/chubbyts-undici-server][2]: ^1.0.0
+ * [@chubbyts/chubbyts-undici-server][2]: ^1.0.1
 
 ## Installation
 
 Through [NPM](https://www.npmjs.com) as [@chubbyts/chubbyts-undici-server-node][1].
 
 ```sh
-npm i @chubbyts/chubbyts-undici-server-node@^1.0.0
+npm i @chubbyts/chubbyts-undici-server-node@^1.0.1
 ```
 
 ## Usage
 
 ```ts
+import { STATUS_CODES } from 'node:http';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 import type { Handler, ServerRequest } from '@chubbyts/chubbyts-undici-server/dist/server';
@@ -63,20 +64,13 @@ const shutdownServer = (server: Server) => {
 
 const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
 
-const handler: Handler = async (serverRequest: ServerRequest): Promise<Response> => {
-  return new Response(
-    JSON.stringify({
-      method: serverRequest.method,
-      url: serverRequest.url,
-      headers: Object.fromEntries(serverRequest.headers.entries()),
-      body: await serverRequest.json(),
-    }),
-    {
-      status: 200,
-      statusText: 'OK',
-      headers: { 'content-type': 'application/json' },
-    },
-  );
+// for example @chubbyts/chubbyts-framework app (which implements Handler)
+const handler: Handler = async (serverRequest: ServerRequest<{name: string}>): Promise<Response> => {
+  return new Response(`Hello, ${serverRequest.attributes.name}`, {
+    status: 200,
+    statusText: STATUS_CODES[200],
+    headers: {'content-type': 'text/plain'}
+  });
 };
 
 const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
