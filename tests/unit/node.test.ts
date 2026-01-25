@@ -191,6 +191,43 @@ describe('node', () => {
     });
 
     test('with method, with base url', async () => {
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        method: 'HEAD',
+        rawHeaders: [
+          'content-type',
+          'multipart/form-data; boundary=WebKitFormBoundary7MA4YWxkTrZu0gW',
+          'x-custom',
+          'value1',
+          'x-custom',
+          'value2',
+        ],
+      });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+
+      const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
+
+      expect(serverRequest).toBeInstanceOf(ServerRequest);
+
+      expect(serverRequest.method).toBe('HEAD');
+      expect(serverRequest.url).toMatchInlineSnapshot('"https://example.com/path/to/route"');
+      expect([...serverRequest.headers.entries()]).toMatchInlineSnapshot(`
+        [
+          [
+            "content-type",
+            "multipart/form-data; boundary=WebKitFormBoundary7MA4YWxkTrZu0gW",
+          ],
+          [
+            "x-custom",
+            "value1, value2",
+          ],
+        ]
+      `);
+      expect(serverRequest.body).toBeNull();
+    });
+
+    test('with method, with base url, with body', async () => {
       const body = [
         '--WebKitFormBoundary7MA4YWxkTrZu0gW',
         'Content-Disposition: form-data; name="textField"',

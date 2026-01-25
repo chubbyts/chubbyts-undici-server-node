@@ -38,13 +38,20 @@ export const createNodeRequestToUndiciRequestFactory = (
       headers.append(rawHeaders[i], rawHeaders[i + 1]);
     }
 
-    const body = method === 'GET' || method === 'HEAD' ? null : Readable.toWeb(nodeRequest);
+    const url = getUrl(nodeRequest, baseUrl);
 
-    return new ServerRequest(getUrl(nodeRequest, baseUrl), {
+    if (method === 'GET' || method === 'HEAD') {
+      return new ServerRequest(url, {
+        method,
+        headers,
+      });
+    }
+
+    return new ServerRequest(url, {
       method,
       headers,
-      body,
-      duplex: body ? 'half' : undefined,
+      body: Readable.toWeb(nodeRequest),
+      duplex: 'half',
     });
   };
 };
