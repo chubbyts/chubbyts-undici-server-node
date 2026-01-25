@@ -1,7 +1,7 @@
 {
   "name": "@chubbyts/chubbyts-undici-server-node",
   "type": "module",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Use @chubbyts/chubbyts-undici-server on node.js",
   "keywords": [],
   "author": "Dominik Zogg",
@@ -38,7 +38,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@chubbyts/chubbyts-undici-server": "^1.0.1"
+    "@chubbyts/chubbyts-undici-server": "^1.0.2"
   },
   "devDependencies": {
     "@chubbyts/chubbyts-eslint": "^4.0.10",

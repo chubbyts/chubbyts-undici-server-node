@@ -15,14 +15,14 @@ const mockIncomingMessage = (
   options: {
     method?: string;
     url?: string;
-    headers?: Record<string, Array<string> | string>;
+    rawHeaders?: string[];
     body?: Buffer | string;
     localAddress?: string;
     localPort?: number;
     encrypted?: boolean;
   } = {},
 ) => {
-  const { method, url, headers = {}, body = null, localAddress, localPort, encrypted = false } = options;
+  const { method, url, rawHeaders = [], body = null, localAddress, localPort, encrypted = false } = options;
 
   const stream = new Readable({
     read() {
@@ -39,7 +39,7 @@ const mockIncomingMessage = (
 
   stream.method = method;
   stream.url = url;
-  stream.headers = headers;
+  stream.rawHeaders = rawHeaders;
   stream.httpVersion = '1.1';
   stream.socket = { localAddress, localPort, encrypted } as TLSSocket;
 
@@ -72,7 +72,7 @@ const mockServerResponse = (
       callback(err);
     },
   }) as ServerResponse & {
-    headers?: OutgoingHttpHeaders | Array<OutgoingHttpHeader>;
+    headers?: OutgoingHttpHeaders | OutgoingHttpHeader[];
     chunks: Array<Buffer>;
     destroyedError: Error | null;
   };
@@ -80,10 +80,20 @@ const mockServerResponse = (
   stream.chunks = [];
   stream.destroyedError = null;
 
-  stream.writeHead = (statusCode, statusMessage, headers = undefined) => {
+  stream.writeHead = (
+    statusCode: number,
+    statusMessageOrHeaders?: string | OutgoingHttpHeaders | OutgoingHttpHeader[],
+    headers?: OutgoingHttpHeaders | OutgoingHttpHeader[],
+  ) => {
     stream.statusCode = statusCode;
-    stream.statusMessage = statusMessage ?? '';
-    stream.headers = headers;
+
+    if (typeof statusMessageOrHeaders === 'string') {
+      stream.statusMessage = statusMessageOrHeaders;
+      stream.headers = headers;
+    } else {
+      stream.statusMessage = '';
+      stream.headers = statusMessageOrHeaders;
+    }
 
     return stream;
   };
@@ -198,10 +208,14 @@ describe('node', () => {
       const nodeRequest = mockIncomingMessage({
         url: '/path/to/route',
         method: 'POST',
-        headers: {
-          'content-type': 'multipart/form-data; boundary=WebKitFormBoundary7MA4YWxkTrZu0gW',
-          'x-custom': ['value1', 'value2'],
-        },
+        rawHeaders: [
+          'content-type',
+          'multipart/form-data; boundary=WebKitFormBoundary7MA4YWxkTrZu0gW',
+          'x-custom',
+          'value1',
+          'x-custom',
+          'value2',
+        ],
         body,
       });
 

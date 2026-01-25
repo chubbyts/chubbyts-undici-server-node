@@ -10,20 +10,17 @@ export const getUrl = (nodeRequest: IncomingMessage, baseUrl: string | undefined
   const path = nodeRequest.url ?? '/';
 
   if (baseUrl) {
-    return `${baseUrl}${path}`;
+    return baseUrl + path;
   }
 
   const { socket } = nodeRequest;
-
-  const schema = 'encrypted' in socket && socket.encrypted === true ? 'https' : 'http';
+  const encrypted = 'encrypted' in socket && socket.encrypted === true;
+  const schema = encrypted ? 'https' : 'http';
   const address = socket.localAddress ?? '127.0.0.1';
-  const port = socket.localPort ?? (schema === 'https' ? defaultHttpsPort : defaultHttpPort);
+  const port = socket.localPort ?? (encrypted ? defaultHttpsPort : defaultHttpPort);
+  const isDefaultPort = encrypted ? port === defaultHttpsPort : port === defaultHttpPort;
 
-  if ((schema === 'https' && port === defaultHttpsPort) || (schema === 'http' && port === defaultHttpPort)) {
-    return `${schema}://${address}${path}`;
-  }
-
-  return `${schema}://${address}:${port}${path}`;
+  return isDefaultPort ? `${schema}://${address}${path}` : `${schema}://${address}:${port}${path}`;
 };
 
 type NodeRequestToUndiciRequestFactory = (nodeRequest: IncomingMessage) => ServerRequest;
@@ -33,18 +30,13 @@ export const createNodeRequestToUndiciRequestFactory = (
 ): NodeRequestToUndiciRequestFactory => {
   return (nodeRequest: IncomingMessage): ServerRequest => {
     const method = nodeRequest.method ?? 'GET';
+    const headers = new Headers();
+    const rawHeaders = nodeRequest.rawHeaders;
 
-    const headers = Object.entries(nodeRequest.headers).reduce((headers, [name, value]) => {
-      if (Array.isArray(value)) {
-        value.forEach((valuePart) => {
-          headers.append(name, valuePart);
-        });
-      } else if (value) {
-        headers.append(name, value);
-      }
-
-      return headers;
-    }, new Headers());
+    // eslint-disable-next-line functional/no-let
+    for (let i = 0; i < rawHeaders.length; i += 2) {
+      headers.append(rawHeaders[i], rawHeaders[i + 1]);
+    }
 
     const body = method === 'GET' || method === 'HEAD' ? null : Readable.toWeb(nodeRequest);
 
@@ -61,12 +53,19 @@ type UndiciResponseToNodeResponseEmitter = (undiciResponse: Response, nodeRespon
 
 export const createUndiciResponseToNodeResponseEmitter = (): UndiciResponseToNodeResponseEmitter => {
   return (undiciResponse: Response, nodeResponse: ServerResponse): void => {
-    const setCookies = undiciResponse.headers.getSetCookie();
+    const headers: Record<string, string | string[]> = {};
 
-    const headers: Record<string, Array<string>> = Object.fromEntries([
-      ...Array.from(undiciResponse.headers.entries()).filter(([key]) => key.toLowerCase() !== 'set-cookie'),
-      ...(setCookies.length > 0 ? [['set-cookie', setCookies]] : []),
-    ]);
+    undiciResponse.headers.forEach((value, key) => {
+      if (key === 'set-cookie') return;
+      // eslint-disable-next-line functional/immutable-data
+      headers[key] = value;
+    });
+
+    const setCookies = undiciResponse.headers.getSetCookie();
+    if (setCookies.length > 0) {
+      // eslint-disable-next-line functional/immutable-data
+      headers['set-cookie'] = setCookies;
+    }
 
     nodeResponse.writeHead(undiciResponse.status, undiciResponse.statusText, headers);
 
@@ -76,8 +75,6 @@ export const createUndiciResponseToNodeResponseEmitter = (): UndiciResponseToNod
       return;
     }
 
-    const undiciResponseBodyStream = Readable.fromWeb(undiciResponse.body);
-
-    undiciResponseBodyStream.pipe(nodeResponse);
+    Readable.fromWeb(undiciResponse.body).pipe(nodeResponse);
   };
 };
