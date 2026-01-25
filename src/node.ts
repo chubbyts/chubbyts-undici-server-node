@@ -44,7 +44,7 @@ export const createNodeRequestToUndiciRequestFactory = (
       method,
       headers,
       body,
-      duplex: 'half',
+      duplex: body ? 'half' : undefined,
     });
   };
 };
@@ -54,14 +54,18 @@ type UndiciResponseToNodeResponseEmitter = (undiciResponse: Response, nodeRespon
 export const createUndiciResponseToNodeResponseEmitter = (): UndiciResponseToNodeResponseEmitter => {
   return (undiciResponse: Response, nodeResponse: ServerResponse): void => {
     const headers: Record<string, string | string[]> = {};
+    const setCookies: string[] = [];
 
-    undiciResponse.headers.forEach((value, key) => {
-      if (key === 'set-cookie') return;
-      // eslint-disable-next-line functional/immutable-data
-      headers[key] = value;
-    });
+    for (const [key, value] of undiciResponse.headers.entries()) {
+      if (key === 'set-cookie') {
+        // eslint-disable-next-line functional/immutable-data
+        setCookies.push(value);
+      } else {
+        // eslint-disable-next-line functional/immutable-data
+        headers[key] = value;
+      }
+    }
 
-    const setCookies = undiciResponse.headers.getSetCookie();
     if (setCookies.length > 0) {
       // eslint-disable-next-line functional/immutable-data
       headers['set-cookie'] = setCookies;
