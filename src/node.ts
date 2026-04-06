@@ -6,6 +6,41 @@ import { ServerRequest } from '@chubbyts/chubbyts-undici-server/dist/server';
 const defaultHttpPort = 80;
 const defaultHttpsPort = 443;
 
+const nodeRequestToUndiciHeadersInit = (nodeRequest: IncomingMessage): [string, string][] => {
+  const headers: [string, string][] = [];
+  const { rawHeaders } = nodeRequest;
+
+  // eslint-disable-next-line functional/no-let
+  for (let i = 0; i < rawHeaders.length; i += 2) {
+    // eslint-disable-next-line functional/immutable-data
+    headers.push([rawHeaders[i], rawHeaders[i + 1]]);
+  }
+
+  return headers;
+};
+
+const undiciResponseToNodeHeaders = (undiciResponse: Response): Record<string, string | string[]> => {
+  const headers: Record<string, string | string[]> = {};
+  const setCookies: string[] = [];
+
+  for (const [key, value] of undiciResponse.headers.entries()) {
+    if (key === 'set-cookie') {
+      // eslint-disable-next-line functional/immutable-data
+      setCookies.push(value);
+    } else {
+      // eslint-disable-next-line functional/immutable-data
+      headers[key] = value;
+    }
+  }
+
+  if (setCookies.length > 0) {
+    // eslint-disable-next-line functional/immutable-data
+    headers['set-cookie'] = setCookies;
+  }
+
+  return headers;
+};
+
 export const getUrl = (nodeRequest: IncomingMessage, baseUrl: string | undefined = undefined): string => {
   const path = nodeRequest.url ?? '/';
 
@@ -30,13 +65,7 @@ export const createNodeRequestToUndiciRequestFactory = (
 ): NodeRequestToUndiciRequestFactory => {
   return (nodeRequest: IncomingMessage): ServerRequest => {
     const method = nodeRequest.method ?? 'GET';
-    const headers = new Headers();
-    const rawHeaders = nodeRequest.rawHeaders;
-
-    // eslint-disable-next-line functional/no-let
-    for (let i = 0; i < rawHeaders.length; i += 2) {
-      headers.append(rawHeaders[i], rawHeaders[i + 1]);
-    }
+    const headers = nodeRequestToUndiciHeadersInit(nodeRequest);
 
     const url = getUrl(nodeRequest, baseUrl);
 
@@ -60,23 +89,7 @@ type UndiciResponseToNodeResponseEmitter = (undiciResponse: Response, nodeRespon
 
 export const createUndiciResponseToNodeResponseEmitter = (): UndiciResponseToNodeResponseEmitter => {
   return (undiciResponse: Response, nodeResponse: ServerResponse): void => {
-    const headers: Record<string, string | string[]> = {};
-    const setCookies: string[] = [];
-
-    for (const [key, value] of undiciResponse.headers.entries()) {
-      if (key === 'set-cookie') {
-        // eslint-disable-next-line functional/immutable-data
-        setCookies.push(value);
-      } else {
-        // eslint-disable-next-line functional/immutable-data
-        headers[key] = value;
-      }
-    }
-
-    if (setCookies.length > 0) {
-      // eslint-disable-next-line functional/immutable-data
-      headers['set-cookie'] = setCookies;
-    }
+    const headers = undiciResponseToNodeHeaders(undiciResponse);
 
     nodeResponse.writeHead(undiciResponse.status, undiciResponse.statusText, headers);
 

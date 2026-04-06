@@ -24,14 +24,14 @@ Use @chubbyts/chubbyts-undici-server on node.js.
 ## Requirements
 
  * node: 20
- * [@chubbyts/chubbyts-undici-server][2]: ^1.0.3
+ * [@chubbyts/chubbyts-undici-server][2]: ^1.1.0
 
 ## Installation
 
 Through [NPM](https://www.npmjs.com) as [@chubbyts/chubbyts-undici-server-node][1].
 
 ```sh
-npm i @chubbyts/chubbyts-undici-server-node@^1.0.4
+npm i @chubbyts/chubbyts-undici-server-node@^1.1.0
 ```
 
 ## Usage
