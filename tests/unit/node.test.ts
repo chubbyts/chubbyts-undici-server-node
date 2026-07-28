@@ -1,4 +1,4 @@
-/* eslint-disable functional/immutable-data */
+/* oxlint-disable functional/immutable-data */
 
 import type { OutgoingHttpHeader, OutgoingHttpHeaders, ServerResponse, IncomingMessage } from 'node:http';
 import type { TLSSocket } from 'node:tls';

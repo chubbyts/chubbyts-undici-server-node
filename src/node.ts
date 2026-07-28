@@ -10,9 +10,9 @@ const nodeRequestToUndiciHeadersInit = (nodeRequest: IncomingMessage): [string, 
   const headers: [string, string][] = [];
   const { rawHeaders } = nodeRequest;
 
-  // eslint-disable-next-line functional/no-let
+  // oxlint-disable-next-line functional/no-let
   for (let i = 0; i < rawHeaders.length; i += 2) {
-    // eslint-disable-next-line functional/immutable-data
+    // oxlint-disable-next-line functional/immutable-data
     headers.push([rawHeaders[i], rawHeaders[i + 1]]);
   }
 
@@ -25,16 +25,16 @@ const undiciResponseToNodeHeaders = (undiciResponse: Response): Record<string, s
 
   for (const [key, value] of undiciResponse.headers.entries()) {
     if (key === 'set-cookie') {
-      // eslint-disable-next-line functional/immutable-data
+      // oxlint-disable-next-line functional/immutable-data
       setCookies.push(value);
     } else {
-      // eslint-disable-next-line functional/immutable-data
+      // oxlint-disable-next-line functional/immutable-data
       headers[key] = value;
     }
   }
 
   if (setCookies.length > 0) {
-    // eslint-disable-next-line functional/immutable-data
+    // oxlint-disable-next-line functional/immutable-data
     headers['set-cookie'] = setCookies;
   }
 
