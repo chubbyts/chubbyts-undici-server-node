@@ -24,7 +24,7 @@ Use @chubbyts/chubbyts-undici-server on node.js.
 ## Requirements
 
  * node: 22
- * [@chubbyts/chubbyts-undici-server][2]: ^1.1.3
+ * [@chubbyts/chubbyts-undici-server][2]: ^1.2.0
 
 ## Installation
 
