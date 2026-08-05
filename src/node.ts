@@ -13,7 +13,6 @@ const singletonHeaderNames = new Set(['authorization', 'proxy-authorization']);
 const nodeRequestToUndiciHeadersInit = (nodeRequest: IncomingMessage): [string, string][] => {
   const headers: [string, string][] = [];
   const seenSingletonHeaderNames = new Set<string>();
-  const cookies: string[] = [];
   const { rawHeaders } = nodeRequest;
 
   // oxlint-disable-next-line functional/no-let
@@ -29,21 +28,10 @@ const nodeRequestToUndiciHeadersInit = (nodeRequest: IncomingMessage): [string, 
       seenSingletonHeaderNames.add(name);
     }
 
-    // cookie pairs get combined with '; ' (RFC 9113 8.2.3) instead of the ', ' undici's Headers
-    // would use: ',' is not a valid cookie separator and would corrupt the adjacent pairs
-    if (name === 'cookie') {
-      // oxlint-disable-next-line functional/immutable-data
-      cookies.push(value);
-      continue;
-    }
-
+    // duplicate cookie headers need no special handling: undici's Headers combines them with
+    // the cookie-specific '; ' separator (fetch spec 5.5 "combine") instead of the default ', '
     // oxlint-disable-next-line functional/immutable-data
     headers.push([rawHeaders[i], value]);
-  }
-
-  if (cookies.length > 0) {
-    // oxlint-disable-next-line functional/immutable-data
-    headers.push(['cookie', cookies.join('; ')]);
   }
 
   return headers;
@@ -197,10 +185,8 @@ export const createUndiciResponseToNodeResponseEmitter = (
       return;
     }
 
-    pipeline(Readable.fromWeb(undiciResponse.body), nodeResponse, (error) => {
-      if (error) {
-        nodeResponse.destroy(error);
-      }
-    });
+    // pipeline destroys both streams itself on failure (a failing nodeResponse cancels the body
+    // stream, a failing body stream destroys nodeResponse): the callback only consumes the error
+    pipeline(Readable.fromWeb(undiciResponse.body), nodeResponse, () => {});
   };
 };

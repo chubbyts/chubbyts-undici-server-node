@@ -17,6 +17,7 @@ const mockIncomingMessage = (
     url?: string;
     rawHeaders?: string[];
     body?: Buffer | string;
+    bodyDelayMs?: number;
     error?: Error;
     stall?: boolean;
     localAddress?: string;
@@ -29,12 +30,15 @@ const mockIncomingMessage = (
     url,
     rawHeaders = [],
     body = null,
+    bodyDelayMs,
     error,
     stall = false,
     localAddress,
     localPort,
     encrypted = false,
   } = options;
+
+  const delayedPush = { scheduled: false };
 
   const stream = new Readable({
     read() {
@@ -50,6 +54,19 @@ const mockIncomingMessage = (
 
       if (body == null) {
         this.push(null);
+
+        return;
+      }
+
+      if (bodyDelayMs !== undefined) {
+        if (!delayedPush.scheduled) {
+          delayedPush.scheduled = true;
+
+          setTimeout(() => {
+            this.push(Buffer.isBuffer(body) ? body : String(body));
+            this.push(null);
+          }, bodyDelayMs);
+        }
 
         return;
       }
@@ -128,6 +145,23 @@ const mockServerResponse = (
   return stream;
 };
 
+const trackDestroyErrors = (stream: IncomingMessage | ServerResponse): Array<Error> => {
+  const destroyErrors: Array<Error> = [];
+  const originalDestroy = stream.destroy.bind(stream);
+
+  stream.destroy = ((error?: Error) => {
+    if (error) {
+      destroyErrors.push(error);
+    }
+
+    return originalDestroy(error);
+  }) as typeof stream.destroy;
+
+  return destroyErrors;
+};
+
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 describe('node', () => {
   describe('getUrl', () => {
     test('with base url', () => {
@@ -146,6 +180,14 @@ describe('node', () => {
       const nodeRequest = mockIncomingMessage({ url: '/path/to/route' });
 
       expect(getUrl(nodeRequest, 'https://example.com/app')).toMatchInlineSnapshot(
+        '"https://example.com/app/path/to/route"',
+      );
+    });
+
+    test('with base url, with path prefix, with trailing slash', () => {
+      const nodeRequest = mockIncomingMessage({ url: '/path/to/route' });
+
+      expect(getUrl(nodeRequest, 'https://example.com/app/')).toMatchInlineSnapshot(
         '"https://example.com/app/path/to/route"',
       );
     });
@@ -358,11 +400,16 @@ describe('node', () => {
         body,
       });
 
+      const destroyErrors = trackDestroyErrors(nodeRequest);
+
       const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
 
       const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
 
       expect(serverRequest).toBeInstanceOf(ServerRequest);
+
+      // one listener from Readable.toWeb plus the explicit guard against unhandled 'error' events
+      expect(nodeRequest.listenerCount('error')).toBe(2);
 
       expect(serverRequest.method).toBe('POST');
       expect(serverRequest.url).toMatchInlineSnapshot('"https://example.com/path/to/route"');
@@ -396,6 +443,11 @@ describe('node', () => {
 
       expect((fileField as File).name).toBe('red.png');
       expect((fileField as File).size).toBe(69);
+
+      // no request body timeout is configured: no timer may destroy the request afterwards
+      await wait(50);
+
+      expect(destroyErrors).toEqual([]);
     });
 
     test('with method, with base url, with request stream error', async () => {
@@ -437,11 +489,39 @@ describe('node', () => {
         body: 'complete',
       });
 
-      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com', 1000);
+      const destroyErrors = trackDestroyErrors(nodeRequest);
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com', 100);
 
       const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
 
       await expect(serverRequest.text()).resolves.toBe('complete');
+
+      // the body has been fully received: the timeout got cleared and must not destroy the request
+      await wait(150);
+
+      expect(destroyErrors).toEqual([]);
+    });
+
+    test('with method, with base url, without request body timeout, with slowly received body', async () => {
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        method: 'POST',
+        rawHeaders: ['content-type', 'text/plain'],
+        body: 'delayed',
+        bodyDelayMs: 50,
+      });
+
+      const destroyErrors = trackDestroyErrors(nodeRequest);
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+
+      const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
+
+      // no request body timeout is configured: a slow body must not lead to a destroyed request
+      await expect(serverRequest.text()).resolves.toBe('delayed');
+
+      expect(destroyErrors).toEqual([]);
     });
 
     test('with multiple cookie headers', async () => {
@@ -460,6 +540,27 @@ describe('node', () => {
           [
             "cookie",
             "sessionId=abc123; ui_lang=en-US",
+          ],
+        ]
+      `);
+    });
+
+    test('with single authorization header', () => {
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        method: 'GET',
+        rawHeaders: ['Authorization', 'Bearer token1'],
+      });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+
+      const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
+
+      expect([...serverRequest.headers.entries()]).toMatchInlineSnapshot(`
+        [
+          [
+            "authorization",
+            "Bearer token1",
           ],
         ]
       `);
@@ -539,6 +640,8 @@ describe('node', () => {
     test('with body', async () => {
       const nodeResponse = mockServerResponse();
 
+      const destroyErrors = trackDestroyErrors(nodeResponse);
+
       const undiciResponse = new Response(JSON.stringify({ name: 'test' }), {
         status: 200,
         statusText: 'OK',
@@ -564,6 +667,44 @@ describe('node', () => {
       });
 
       expect(body).toMatchInlineSnapshot('"{"name":"test"}"');
+
+      // no response send timeout is configured: no timer may destroy the response afterwards
+      await wait(50);
+
+      expect(destroyErrors).toEqual([]);
+    });
+
+    test('with body, without response send timeout, with slowly sent body', async () => {
+      const nodeResponse = mockServerResponse();
+
+      const destroyErrors = trackDestroyErrors(nodeResponse);
+
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          setTimeout(() => {
+            controller.enqueue(new TextEncoder().encode('delayed'));
+            controller.close();
+          }, 50);
+        },
+      });
+
+      const undiciResponse = new Response(body, {
+        status: 200,
+        statusText: 'OK',
+        headers: [['content-type', 'text/plain']],
+      });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+
+      undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      await new Promise<void>((resolve) => {
+        nodeResponse.on('close', resolve);
+      });
+
+      // no response send timeout is configured: a slow body must not lead to a destroyed response
+      expect(destroyErrors).toEqual([]);
+      expect(Buffer.concat(nodeResponse.chunks.map((c) => Buffer.from(c))).toString('utf8')).toBe('delayed');
     });
 
     test('with body, with write error', async () => {
@@ -667,13 +808,15 @@ describe('node', () => {
     test('with body, with response send timeout, with body sent in time', async () => {
       const nodeResponse = mockServerResponse();
 
+      const destroyErrors = trackDestroyErrors(nodeResponse);
+
       const undiciResponse = new Response(JSON.stringify({ name: 'test' }), {
         status: 200,
         statusText: 'OK',
         headers: [['content-type', 'json']],
       });
 
-      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter(1000);
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter(100);
 
       undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
 
@@ -685,6 +828,11 @@ describe('node', () => {
 
       expect(body).toMatchInlineSnapshot('"{"name":"test"}"');
       expect(nodeResponse.destroyedError).toBeNull();
+
+      // the response has been fully sent: the timeout got cleared and must not destroy the response
+      await wait(150);
+
+      expect(destroyErrors).toEqual([]);
     });
 
     test('without body, with writeHead error', async () => {
