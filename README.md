@@ -62,7 +62,8 @@ const shutdownServer = (server: Server) => {
   });
 };
 
-const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+// second argument (optional): the request body must be fully received within 30s
+const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com', 30_000);
 
 // for example @chubbyts/chubbyts-framework app (which implements Handler)
 const handler: Handler = async (serverRequest: ServerRequest<{name: string}>): Promise<Response> => {
@@ -73,7 +74,8 @@ const handler: Handler = async (serverRequest: ServerRequest<{name: string}>): P
   });
 };
 
-const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+// argument (optional): the response must be fully sent within 60s
+const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter(60_000);
 
 const server = createServer(async (req, res) => {
   const serverRequest = nodeRequestToUndiciRequestFactory(req);
@@ -88,6 +90,20 @@ server.listen(serverPort, serverHost, () => {
 process.on('SIGINT', () => shutdownServer(server));
 process.on('SIGTERM', () => shutdownServer(server));
 ```
+
+### Timeouts
+
+Slow clients (slowloris) can otherwise tie up sockets indefinitely:
+
+ * `createNodeRequestToUndiciRequestFactory(baseUrl, requestBodyTimeoutMs)`: if the request body has not been
+   fully received within the given time, the request gets destroyed and the error surfaces to the handler
+   through the request body stream.
+ * `createUndiciResponseToNodeResponseEmitter(responseSendTimeoutMs)`: if the response has not been fully sent
+   within the given time (slow reading client or stalling response body stream), the response gets destroyed.
+
+Both timeouts are optional and disabled by default. They only cover the body phases handled by this adapter,
+so make sure the node server level timeouts are configured as well: `server.headersTimeout` (slow header
+senders), `server.requestTimeout` and `server.keepAliveTimeout`.
 
 ## Copyright
 

@@ -19,7 +19,7 @@ const shutdownServer = (server: Server) => {
   });
 };
 
-const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com', 30_000);
 
 const handler: Handler = async (serverRequest: ServerRequest): Promise<Response> => {
   const headers = Object.fromEntries(serverRequest.headers.entries());
@@ -41,7 +41,7 @@ const handler: Handler = async (serverRequest: ServerRequest): Promise<Response>
   );
 };
 
-const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter(60_000);
 
 const server = createServer(async (req, res) => {
   const serverRequest = nodeRequestToUndiciRequestFactory(req);

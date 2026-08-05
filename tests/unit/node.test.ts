@@ -18,18 +18,33 @@ const mockIncomingMessage = (
     rawHeaders?: string[];
     body?: Buffer | string;
     error?: Error;
+    stall?: boolean;
     localAddress?: string;
     localPort?: number;
     encrypted?: boolean;
   } = {},
 ) => {
-  const { method, url, rawHeaders = [], body = null, error, localAddress, localPort, encrypted = false } = options;
+  const {
+    method,
+    url,
+    rawHeaders = [],
+    body = null,
+    error,
+    stall = false,
+    localAddress,
+    localPort,
+    encrypted = false,
+  } = options;
 
   const stream = new Readable({
     read() {
       if (error) {
         this.destroy(error);
 
+        return;
+      }
+
+      if (stall) {
         return;
       }
 
@@ -388,6 +403,36 @@ describe('node', () => {
       await expect(serverRequest.text()).rejects.toThrow('client aborted');
     });
 
+    test('with method, with base url, with request body timeout, with stalling request stream', async () => {
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        method: 'POST',
+        rawHeaders: ['content-type', 'text/plain'],
+        stall: true,
+      });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com', 50);
+
+      const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
+
+      await expect(serverRequest.text()).rejects.toThrow('Request body has not been fully received within 50ms');
+    });
+
+    test('with method, with base url, with request body timeout, with body received in time', async () => {
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        method: 'POST',
+        rawHeaders: ['content-type', 'text/plain'],
+        body: 'complete',
+      });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com', 1000);
+
+      const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
+
+      await expect(serverRequest.text()).resolves.toBe('complete');
+    });
+
     test('with absolute-form request target', () => {
       const nodeRequest = mockIncomingMessage({ url: 'http://evil.com/path/to/route' });
 
@@ -510,6 +555,76 @@ describe('node', () => {
       });
 
       expect(nodeResponse.destroyedError).toBe(error);
+    });
+
+    test('without body, with response send timeout', async () => {
+      const nodeResponse = mockServerResponse();
+
+      const undiciResponse = new Response(null, {
+        status: 204,
+        statusText: 'No Content',
+      });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter(1000);
+
+      undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      await new Promise<void>((resolve) => {
+        nodeResponse.on('close', resolve);
+      });
+
+      expect(nodeResponse.statusCode).toBe(204);
+      expect(nodeResponse.destroyedError).toBeNull();
+    });
+
+    test('with body, with response send timeout, with stalling response body stream', async () => {
+      const nodeResponse = mockServerResponse();
+
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('partial'));
+          // stays open: never closes and never enqueues again
+        },
+      });
+
+      const undiciResponse = new Response(body, {
+        status: 200,
+        statusText: 'OK',
+        headers: [['content-type', 'text/plain']],
+      });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter(50);
+
+      undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      await new Promise<void>((resolve) => {
+        nodeResponse.on('close', resolve);
+      });
+
+      expect(nodeResponse.destroyedError?.message).toBe('Response has not been fully sent within 50ms');
+    });
+
+    test('with body, with response send timeout, with body sent in time', async () => {
+      const nodeResponse = mockServerResponse();
+
+      const undiciResponse = new Response(JSON.stringify({ name: 'test' }), {
+        status: 200,
+        statusText: 'OK',
+        headers: [['content-type', 'json']],
+      });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter(1000);
+
+      undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      const body = await new Promise<string>((resolve) => {
+        nodeResponse.on('finish', () => {
+          resolve(Buffer.concat(nodeResponse.chunks.map((c) => Buffer.from(c))).toString('utf8'));
+        });
+      });
+
+      expect(body).toMatchInlineSnapshot('"{"name":"test"}"');
+      expect(nodeResponse.destroyedError).toBeNull();
     });
 
     test('without body, with writeHead error', async () => {

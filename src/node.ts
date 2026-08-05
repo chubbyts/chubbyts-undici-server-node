@@ -84,6 +84,7 @@ type NodeRequestToUndiciRequestFactory = (nodeRequest: IncomingMessage) => Serve
 
 export const createNodeRequestToUndiciRequestFactory = (
   baseUrl: string | undefined = undefined,
+  requestBodyTimeoutMs: number | undefined = undefined,
 ): NodeRequestToUndiciRequestFactory => {
   return (nodeRequest: IncomingMessage): ServerRequest => {
     const method = nodeRequest.method ?? 'GET';
@@ -102,6 +103,17 @@ export const createNodeRequestToUndiciRequestFactory = (
     // Readable.toWeb still propagates the error to the web stream's reader
     nodeRequest.on('error', () => {});
 
+    // slowloris protection: a client sending the body arbitrarily slow would otherwise keep the
+    // request (and its socket) alive forever, the error reaches the handler via the web stream
+    if (requestBodyTimeoutMs !== undefined) {
+      const timeout = setTimeout(() => {
+        nodeRequest.destroy(new Error(`Request body has not been fully received within ${requestBodyTimeoutMs}ms`));
+      }, requestBodyTimeoutMs);
+      timeout.unref();
+
+      nodeRequest.on('close', () => clearTimeout(timeout));
+    }
+
     return new ServerRequest(url, {
       method,
       headers,
@@ -113,7 +125,9 @@ export const createNodeRequestToUndiciRequestFactory = (
 
 type UndiciResponseToNodeResponseEmitter = (undiciResponse: Response, nodeResponse: ServerResponse) => void;
 
-export const createUndiciResponseToNodeResponseEmitter = (): UndiciResponseToNodeResponseEmitter => {
+export const createUndiciResponseToNodeResponseEmitter = (
+  responseSendTimeoutMs: number | undefined = undefined,
+): UndiciResponseToNodeResponseEmitter => {
   return (undiciResponse: Response, nodeResponse: ServerResponse): void => {
     const headers = undiciResponseToNodeHeaders(undiciResponse);
 
@@ -127,6 +141,17 @@ export const createUndiciResponseToNodeResponseEmitter = (): UndiciResponseToNod
       undiciResponse.body?.cancel().catch(() => {});
 
       throw error;
+    }
+
+    // slowloris protection: a client reading the response arbitrarily slow (or a stalling response
+    // body stream) would otherwise keep the response (and its socket) alive forever
+    if (responseSendTimeoutMs !== undefined) {
+      const timeout = setTimeout(() => {
+        nodeResponse.destroy(new Error(`Response has not been fully sent within ${responseSendTimeoutMs}ms`));
+      }, responseSendTimeoutMs);
+      timeout.unref();
+
+      nodeResponse.on('close', () => clearTimeout(timeout));
     }
 
     if (!undiciResponse.body) {
