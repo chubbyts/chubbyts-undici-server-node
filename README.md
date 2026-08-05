@@ -78,9 +78,23 @@ const handler: Handler = async (serverRequest: ServerRequest<{name: string}>): P
 const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter(60_000);
 
 const server = createServer(async (req, res) => {
-  const serverRequest = nodeRequestToUndiciRequestFactory(req);
-  const response = await handler(serverRequest);
-  undiciResponseToNodeResponseEmitter(response, res);
+  try {
+    const serverRequest = nodeRequestToUndiciRequestFactory(req);
+    const response = await handler(serverRequest);
+    undiciResponseToNodeResponseEmitter(response, res);
+  } catch (error) {
+    console.error(`Failed to handle request: ${error}`);
+
+    // once headers are sent the response cannot be turned into a 500 anymore:
+    // destroying the socket is the only way to signal the failure to the client
+    if (res.headersSent) {
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+
+      return;
+    }
+
+    res.writeHead(500, { 'content-type': 'text/plain' }).end('Internal Server Error');
+  }
 });
 
 server.listen(serverPort, serverHost, () => {
