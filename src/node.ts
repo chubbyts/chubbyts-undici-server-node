@@ -87,7 +87,14 @@ export const createNodeRequestToUndiciRequestFactory = (
   requestBodyTimeoutMs: number | undefined = undefined,
 ): NodeRequestToUndiciRequestFactory => {
   return (nodeRequest: IncomingMessage): ServerRequest => {
-    const method = nodeRequest.method ?? 'GET';
+    const { method } = nodeRequest;
+
+    // node's parser guarantees a method for every parsed request: a missing one means the
+    // IncomingMessage was not produced by the parser and must not silently be treated as GET
+    if (!method) {
+      throw new Error('Request method is missing');
+    }
+
     const headers = nodeRequestToUndiciHeadersInit(nodeRequest);
 
     const url = getUrl(nodeRequest, baseUrl);

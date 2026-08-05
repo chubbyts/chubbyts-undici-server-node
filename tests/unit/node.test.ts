@@ -261,8 +261,19 @@ describe('node', () => {
   });
 
   describe('createNodeRequestToUndiciRequestFactory', () => {
-    test('without method, without base url', async () => {
+    test('without method', async () => {
       const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+      });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory();
+
+      expect(() => nodeRequestToUndiciRequestFactory(nodeRequest)).toThrow('Request method is missing');
+    });
+
+    test('with method, without base url', async () => {
+      const nodeRequest = mockIncomingMessage({
+        method: 'GET',
         url: '/path/to/route',
         localAddress: '192.168.1.5',
         localPort: 443,
@@ -434,7 +445,7 @@ describe('node', () => {
     });
 
     test('with absolute-form request target', () => {
-      const nodeRequest = mockIncomingMessage({ url: 'http://evil.com/path/to/route' });
+      const nodeRequest = mockIncomingMessage({ method: 'GET', url: 'http://evil.com/path/to/route' });
 
       const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
 
