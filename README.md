@@ -31,7 +31,7 @@ Use @chubbyts/chubbyts-undici-server on node.js.
 Through [NPM](https://www.npmjs.com) as [@chubbyts/chubbyts-undici-server-node][1].
 
 ```sh
-npm i @chubbyts/chubbyts-undici-server-node@^1.2.0
+npm i @chubbyts/chubbyts-undici-server-node@^1.3.0
 ```
 
 ## Usage
