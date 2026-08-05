@@ -116,6 +116,20 @@ describe('node', () => {
       expect(getUrl(nodeRequest, 'https://example.com')).toMatchInlineSnapshot('"https://example.com/"');
     });
 
+    test('with base url, with trailing slash', () => {
+      const nodeRequest = mockIncomingMessage({ url: '/path/to/route' });
+
+      expect(getUrl(nodeRequest, 'https://example.com/')).toMatchInlineSnapshot('"https://example.com/path/to/route"');
+    });
+
+    test('with base url, with path prefix', () => {
+      const nodeRequest = mockIncomingMessage({ url: '/path/to/route' });
+
+      expect(getUrl(nodeRequest, 'https://example.com/app')).toMatchInlineSnapshot(
+        '"https://example.com/app/path/to/route"',
+      );
+    });
+
     test('without base url, with encryption, with localAddress, with localPort', () => {
       const nodeRequest = mockIncomingMessage({
         url: '/path/to/route',
@@ -173,6 +187,56 @@ describe('node', () => {
       });
 
       expect(getUrl(nodeRequest)).toMatchInlineSnapshot('"http://127.0.0.1/path/to/route"');
+    });
+
+    test('without base url, with ipv6 localAddress', () => {
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        localAddress: '::1',
+        localPort: 8080,
+      });
+
+      expect(getUrl(nodeRequest)).toMatchInlineSnapshot('"http://[::1]:8080/path/to/route"');
+    });
+
+    test('with base url, with protocol-relative request target', () => {
+      const nodeRequest = mockIncomingMessage({ url: '//evil.com/path/to/route' });
+
+      expect(() => getUrl(nodeRequest, 'https://example.com')).toThrow(
+        'Request target "//evil.com/path/to/route" resolves to origin "https://evil.com" instead of the expected origin "https://example.com"',
+      );
+    });
+
+    test('with base url, with backslash protocol-relative request target', () => {
+      const nodeRequest = mockIncomingMessage({ url: '/\\evil.com/path/to/route' });
+
+      expect(() => getUrl(nodeRequest, 'https://example.com')).toThrow(
+        'Request target "/\\evil.com/path/to/route" resolves to origin "https://evil.com" instead of the expected origin "https://example.com"',
+      );
+    });
+
+    test('with base url, with absolute-form request target', () => {
+      const nodeRequest = mockIncomingMessage({ url: 'http://evil.com/path/to/route' });
+
+      expect(() => getUrl(nodeRequest, 'https://example.com')).toThrow(
+        'Unsupported request target "http://evil.com/path/to/route": only origin-form (starting with "/") is supported',
+      );
+    });
+
+    test('without base url, with authority-form request target', () => {
+      const nodeRequest = mockIncomingMessage({ url: 'evil.com:443' });
+
+      expect(() => getUrl(nodeRequest)).toThrow(
+        'Unsupported request target "evil.com:443": only origin-form (starting with "/") is supported',
+      );
+    });
+
+    test('without base url, with asterisk-form request target', () => {
+      const nodeRequest = mockIncomingMessage({ url: '*' });
+
+      expect(() => getUrl(nodeRequest)).toThrow(
+        'Unsupported request target "*": only origin-form (starting with "/") is supported',
+      );
     });
   });
 
@@ -317,6 +381,16 @@ describe('node', () => {
       const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
 
       await expect(serverRequest.text()).rejects.toThrow('client aborted');
+    });
+
+    test('with absolute-form request target', () => {
+      const nodeRequest = mockIncomingMessage({ url: 'http://evil.com/path/to/route' });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+
+      expect(() => nodeRequestToUndiciRequestFactory(nodeRequest)).toThrow(
+        'Unsupported request target "http://evil.com/path/to/route": only origin-form (starting with "/") is supported',
+      );
     });
   });
 

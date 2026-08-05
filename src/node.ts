@@ -41,21 +41,43 @@ const undiciResponseToNodeHeaders = (undiciResponse: Response): Record<string, s
   return headers;
 };
 
+const resolveUrl = (path: string, base: string): string => {
+  const parsedBase = new URL(base);
+  const url = new URL(parsedBase.pathname.replace(/\/$/, '') + path, parsedBase.origin);
+
+  // protocol-relative ('//evil.com/path') and backslash ('/\evil.com/path') targets resolve
+  // to a different host than the base url and must not be trusted
+  if (url.origin !== parsedBase.origin) {
+    throw new Error(
+      `Request target "${path}" resolves to origin "${url.origin}" instead of the expected origin "${parsedBase.origin}"`,
+    );
+  }
+
+  return url.toString();
+};
+
 export const getUrl = (nodeRequest: IncomingMessage, baseUrl: string | undefined = undefined): string => {
   const path = nodeRequest.url ?? '/';
 
+  // only origin-form request targets can be safely appended after a host: absolute-form
+  // ('http://evil.com/path'), authority-form and asterisk-form targets would end up within
+  // the authority part of the built url and allow host spoofing
+  if (!path.startsWith('/')) {
+    throw new Error(`Unsupported request target "${path}": only origin-form (starting with "/") is supported`);
+  }
+
   if (baseUrl) {
-    return baseUrl + path;
+    return resolveUrl(path, baseUrl);
   }
 
   const { socket } = nodeRequest;
   const encrypted = 'encrypted' in socket && socket.encrypted === true;
   const schema = encrypted ? 'https' : 'http';
   const address = socket.localAddress ?? '127.0.0.1';
+  const host = address.includes(':') ? `[${address}]` : address;
   const port = socket.localPort ?? (encrypted ? defaultHttpsPort : defaultHttpPort);
-  const isDefaultPort = encrypted ? port === defaultHttpsPort : port === defaultHttpPort;
 
-  return isDefaultPort ? `${schema}://${address}${path}` : `${schema}://${address}:${port}${path}`;
+  return resolveUrl(path, `${schema}://${host}:${port}`);
 };
 
 type NodeRequestToUndiciRequestFactory = (nodeRequest: IncomingMessage) => ServerRequest;
