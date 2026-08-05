@@ -6,14 +6,44 @@ import { ServerRequest } from '@chubbyts/chubbyts-undici-server/dist/server';
 const defaultHttpPort = 80;
 const defaultHttpsPort = 443;
 
+// credentials are singleton fields (RFC 9110 5.5): duplicates cannot be combined, undici's
+// Headers would join them with ', ' which confuses downstream auth parsing
+const singletonHeaderNames = ['authorization', 'proxy-authorization'];
+
 const nodeRequestToUndiciHeadersInit = (nodeRequest: IncomingMessage): [string, string][] => {
   const headers: [string, string][] = [];
+  const seenSingletonHeaderNames = new Set<string>();
+  const cookies: string[] = [];
   const { rawHeaders } = nodeRequest;
 
   // oxlint-disable-next-line functional/no-let
   for (let i = 0; i < rawHeaders.length; i += 2) {
+    const name = rawHeaders[i].toLowerCase();
+    const value = rawHeaders[i + 1];
+
+    if (singletonHeaderNames.includes(name)) {
+      if (seenSingletonHeaderNames.has(name)) {
+        throw new Error(`Request contains multiple "${name}" headers`);
+      }
+
+      seenSingletonHeaderNames.add(name);
+    }
+
+    // cookie pairs get combined with '; ' (RFC 9113 8.2.3) instead of the ', ' undici's Headers
+    // would use: ',' is not a valid cookie separator and would corrupt the adjacent pairs
+    if (name === 'cookie') {
+      // oxlint-disable-next-line functional/immutable-data
+      cookies.push(value);
+      continue;
+    }
+
     // oxlint-disable-next-line functional/immutable-data
-    headers.push([rawHeaders[i], rawHeaders[i + 1]]);
+    headers.push([rawHeaders[i], value]);
+  }
+
+  if (cookies.length > 0) {
+    // oxlint-disable-next-line functional/immutable-data
+    headers.push(['cookie', cookies.join('; ')]);
   }
 
   return headers;

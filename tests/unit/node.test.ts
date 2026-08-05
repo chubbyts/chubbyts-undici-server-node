@@ -444,6 +444,55 @@ describe('node', () => {
       await expect(serverRequest.text()).resolves.toBe('complete');
     });
 
+    test('with multiple cookie headers', async () => {
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        method: 'GET',
+        rawHeaders: ['Cookie', 'sessionId=abc123', 'Cookie', 'ui_lang=en-US'],
+      });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+
+      const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
+
+      expect([...serverRequest.headers.entries()]).toMatchInlineSnapshot(`
+        [
+          [
+            "cookie",
+            "sessionId=abc123; ui_lang=en-US",
+          ],
+        ]
+      `);
+    });
+
+    test('with multiple authorization headers', () => {
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        method: 'GET',
+        rawHeaders: ['Authorization', 'Bearer token1', 'Authorization', 'Bearer token2'],
+      });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+
+      expect(() => nodeRequestToUndiciRequestFactory(nodeRequest)).toThrow(
+        'Request contains multiple "authorization" headers',
+      );
+    });
+
+    test('with multiple proxy-authorization headers', () => {
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        method: 'GET',
+        rawHeaders: ['Proxy-Authorization', 'Basic dXNlcjE=', 'Proxy-Authorization', 'Basic dXNlcjI='],
+      });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+
+      expect(() => nodeRequestToUndiciRequestFactory(nodeRequest)).toThrow(
+        'Request contains multiple "proxy-authorization" headers',
+      );
+    });
+
     test('with absolute-form request target', () => {
       const nodeRequest = mockIncomingMessage({ method: 'GET', url: 'http://evil.com/path/to/route' });
 
