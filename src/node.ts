@@ -8,7 +8,7 @@ const defaultHttpsPort = 443;
 
 // credentials are singleton fields (RFC 9110 5.5): duplicates cannot be combined, undici's
 // Headers would join them with ', ' which confuses downstream auth parsing
-const singletonHeaderNames = ['authorization', 'proxy-authorization'];
+const singletonHeaderNames = new Set(['authorization', 'proxy-authorization']);
 
 const nodeRequestToUndiciHeadersInit = (nodeRequest: IncomingMessage): [string, string][] => {
   const headers: [string, string][] = [];
@@ -21,7 +21,7 @@ const nodeRequestToUndiciHeadersInit = (nodeRequest: IncomingMessage): [string, 
     const name = rawHeaders[i].toLowerCase();
     const value = rawHeaders[i + 1];
 
-    if (singletonHeaderNames.includes(name)) {
+    if (singletonHeaderNames.has(name)) {
       if (seenSingletonHeaderNames.has(name)) {
         throw new Error(`Request contains multiple "${name}" headers`);
       }
