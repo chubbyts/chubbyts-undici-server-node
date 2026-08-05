@@ -117,7 +117,17 @@ export const createUndiciResponseToNodeResponseEmitter = (): UndiciResponseToNod
   return (undiciResponse: Response, nodeResponse: ServerResponse): void => {
     const headers = undiciResponseToNodeHeaders(undiciResponse);
 
-    nodeResponse.writeHead(undiciResponse.status, undiciResponse.statusText, headers);
+    // undici only rejects NUL, CR and LF within header values, node additionally rejects all other
+    // control characters: writeHead can therefore throw for a successfully constructed Response
+    // (same for a status outside 100-999, e.g. the 0 of Response.error()); cancel the potentially
+    // connection-backed body before surfacing the error, nothing has been sent to the client yet
+    try {
+      nodeResponse.writeHead(undiciResponse.status, undiciResponse.statusText, headers);
+    } catch (error) {
+      undiciResponse.body?.cancel().catch(() => {});
+
+      throw error;
+    }
 
     if (!undiciResponse.body) {
       nodeResponse.end();

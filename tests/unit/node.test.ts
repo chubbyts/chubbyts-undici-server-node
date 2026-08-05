@@ -55,6 +55,7 @@ const mockIncomingMessage = (
 
 const mockServerResponse = (
   error: Error | string | undefined = undefined,
+  writeHeadError: Error | undefined = undefined,
 ): ServerResponse & {
   headers?: OutgoingHttpHeaders | Array<OutgoingHttpHeader>;
   chunks: Array<Buffer>;
@@ -92,6 +93,10 @@ const mockServerResponse = (
     statusMessageOrHeaders?: string | OutgoingHttpHeaders | OutgoingHttpHeader[],
     headers?: OutgoingHttpHeaders | OutgoingHttpHeader[],
   ) => {
+    if (writeHeadError) {
+      throw writeHeadError;
+    }
+
     stream.statusCode = statusCode;
 
     if (typeof statusMessageOrHeaders === 'string') {
@@ -505,6 +510,47 @@ describe('node', () => {
       });
 
       expect(nodeResponse.destroyedError).toBe(error);
+    });
+
+    test('without body, with writeHead error', async () => {
+      const error = new TypeError('Invalid character in header content ["x-custom"]');
+
+      const nodeResponse = mockServerResponse(undefined, error);
+
+      const undiciResponse = new Response(null, {
+        status: 200,
+        statusText: 'OK',
+        headers: [['x-custom', 'somevalue']],
+      });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+
+      expect(() => undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse)).toThrow(
+        'Invalid character in header content ["x-custom"]',
+      );
+    });
+
+    test('with body, with writeHead error', async () => {
+      const error = new TypeError('Invalid character in header content ["x-custom"]');
+
+      const nodeResponse = mockServerResponse(undefined, error);
+
+      const undiciResponse = new Response(JSON.stringify({ name: 'test' }), {
+        status: 200,
+        statusText: 'OK',
+        headers: [
+          ['content-type', 'json'],
+          ['x-custom', 'somevalue'],
+        ],
+      });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+
+      expect(() => undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse)).toThrow(
+        'Invalid character in header content ["x-custom"]',
+      );
+
+      expect(undiciResponse.bodyUsed).toBe(true);
     });
   });
 });
