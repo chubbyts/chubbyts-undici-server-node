@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { Readable } from 'node:stream';
+import { Readable, pipeline } from 'node:stream';
 import type { Response } from '@chubbyts/chubbyts-undici-server/dist/server';
 import { ServerRequest } from '@chubbyts/chubbyts-undici-server/dist/server';
 
@@ -76,6 +76,10 @@ export const createNodeRequestToUndiciRequestFactory = (
       });
     }
 
+    // a client abort / socket error must not surface as an unhandled 'error' event;
+    // Readable.toWeb still propagates the error to the web stream's reader
+    nodeRequest.on('error', () => {});
+
     return new ServerRequest(url, {
       method,
       headers,
@@ -99,6 +103,10 @@ export const createUndiciResponseToNodeResponseEmitter = (): UndiciResponseToNod
       return;
     }
 
-    Readable.fromWeb(undiciResponse.body).pipe(nodeResponse);
+    pipeline(Readable.fromWeb(undiciResponse.body), nodeResponse, (error) => {
+      if (error) {
+        nodeResponse.destroy(error);
+      }
+    });
   };
 };

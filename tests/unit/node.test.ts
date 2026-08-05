@@ -17,15 +17,22 @@ const mockIncomingMessage = (
     url?: string;
     rawHeaders?: string[];
     body?: Buffer | string;
+    error?: Error;
     localAddress?: string;
     localPort?: number;
     encrypted?: boolean;
   } = {},
 ) => {
-  const { method, url, rawHeaders = [], body = null, localAddress, localPort, encrypted = false } = options;
+  const { method, url, rawHeaders = [], body = null, error, localAddress, localPort, encrypted = false } = options;
 
   const stream = new Readable({
     read() {
+      if (error) {
+        this.destroy(error);
+
+        return;
+      }
+
       if (body == null) {
         this.push(null);
 
@@ -295,6 +302,22 @@ describe('node', () => {
       expect((fileField as File).name).toBe('red.png');
       expect((fileField as File).size).toBe(69);
     });
+
+    test('with method, with base url, with request stream error', async () => {
+      const error = new Error('client aborted');
+
+      const nodeRequest = mockIncomingMessage({
+        url: '/path/to/route',
+        method: 'POST',
+        error,
+      });
+
+      const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com');
+
+      const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
+
+      await expect(serverRequest.text()).rejects.toThrow('client aborted');
+    });
   });
 
   describe('createUndiciResponseToNodeResponseEmitter', () => {
@@ -357,6 +380,57 @@ describe('node', () => {
       });
 
       expect(body).toMatchInlineSnapshot('"{"name":"test"}"');
+    });
+
+    test('with body, with write error', async () => {
+      const error = new Error('write failed');
+
+      const nodeResponse = mockServerResponse(error);
+
+      const undiciResponse = new Response(JSON.stringify({ name: 'test' }), {
+        status: 200,
+        statusText: 'OK',
+        headers: [['content-type', 'json']],
+      });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+
+      undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      await new Promise<void>((resolve) => {
+        nodeResponse.on('close', resolve);
+      });
+
+      expect(nodeResponse.destroyedError).toBe(error);
+    });
+
+    test('with body, with response body stream error', async () => {
+      const nodeResponse = mockServerResponse();
+
+      const error = new Error('upstream failed');
+
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('partial'));
+          controller.error(error);
+        },
+      });
+
+      const undiciResponse = new Response(body, {
+        status: 200,
+        statusText: 'OK',
+        headers: [['content-type', 'json']],
+      });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+
+      undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      await new Promise<void>((resolve) => {
+        nodeResponse.on('close', resolve);
+      });
+
+      expect(nodeResponse.destroyedError).toBe(error);
     });
   });
 });
