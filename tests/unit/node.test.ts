@@ -3,7 +3,7 @@
 import type { OutgoingHttpHeader, OutgoingHttpHeaders, ServerResponse, IncomingMessage } from 'node:http';
 import type { TLSSocket } from 'node:tls';
 import { Readable, Writable } from 'node:stream';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { Response, ServerRequest } from '@chubbyts/chubbyts-undici-server/dist/server';
 import {
   createNodeRequestToUndiciRequestFactory,
@@ -476,7 +476,14 @@ describe('node', () => {
 
       const nodeRequestToUndiciRequestFactory = createNodeRequestToUndiciRequestFactory('https://example.com', 50);
 
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
       const serverRequest = nodeRequestToUndiciRequestFactory(nodeRequest);
+
+      // the timeout must not keep the process alive
+      expect((setTimeoutSpy.mock.results[0].value as NodeJS.Timeout).hasRef()).toBe(false);
+
+      setTimeoutSpy.mockRestore();
 
       await expect(serverRequest.text()).rejects.toThrow('Request body has not been fully received within 50ms');
     });
@@ -768,7 +775,14 @@ describe('node', () => {
 
       const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter(1000);
 
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
       undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      // the timeout must not keep the process alive
+      expect((setTimeoutSpy.mock.results[0].value as NodeJS.Timeout).hasRef()).toBe(false);
+
+      setTimeoutSpy.mockRestore();
 
       await new Promise<void>((resolve) => {
         nodeResponse.on('close', resolve);
