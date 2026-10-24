@@ -889,5 +889,55 @@ describe('node', () => {
 
       expect(undiciResponse.bodyUsed).toBe(true);
     });
+
+    test('without body, with destroyed node response', async () => {
+      const nodeResponse = mockServerResponse();
+      nodeResponse.destroy();
+
+      const undiciResponse = new Response(null, { status: 200, statusText: 'OK' });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+
+      undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      expect(nodeResponse.headers).toBeUndefined();
+    });
+
+    test('with body, with destroyed node response', async () => {
+      const nodeResponse = mockServerResponse();
+      nodeResponse.destroy();
+
+      const cancel = vi.fn();
+
+      const undiciResponse = new Response(new ReadableStream({ cancel }), { status: 200, statusText: 'OK' });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+
+      undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      expect(nodeResponse.headers).toBeUndefined();
+
+      await wait(0);
+
+      expect(cancel).toHaveBeenCalledTimes(1);
+    });
+
+    test('with body, with destroyed node response, with body cancel error', async () => {
+      const nodeResponse = mockServerResponse();
+      nodeResponse.destroy();
+
+      const cancel = vi.fn(() => Promise.reject(new Error('cancel failed')));
+
+      const undiciResponse = new Response(new ReadableStream({ cancel }), { status: 200, statusText: 'OK' });
+
+      const undiciResponseToNodeResponseEmitter = createUndiciResponseToNodeResponseEmitter();
+
+      undiciResponseToNodeResponseEmitter(undiciResponse, nodeResponse);
+
+      // the cancel error must be consumed: an unhandled rejection would fail the test run
+      await wait(0);
+
+      expect(cancel).toHaveBeenCalledTimes(1);
+    });
   });
 });

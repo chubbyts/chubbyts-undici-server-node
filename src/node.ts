@@ -154,6 +154,15 @@ export const createUndiciResponseToNodeResponseEmitter = (
   responseSendTimeoutMs: number | undefined = undefined,
 ): UndiciResponseToNodeResponseEmitter => {
   return (undiciResponse: Response, nodeResponse: ServerResponse): void => {
+    // the client went away while the response got created (e.g. a browser reload aborting a request):
+    // pipeline would throw synchronously without consuming the body, so cancel the potentially
+    // resource-backed body (e.g. an open file handle) instead, there is no one to send it to
+    if (nodeResponse.destroyed) {
+      undiciResponse.body?.cancel().catch(() => {});
+
+      return;
+    }
+
     const headers = undiciResponseToNodeHeaders(undiciResponse);
 
     // undici only rejects NUL, CR and LF within header values, node additionally rejects all other
